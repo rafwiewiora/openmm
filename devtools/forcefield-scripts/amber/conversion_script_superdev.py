@@ -21,7 +21,7 @@ def convert(filename, ignore=None, provenance=None):
     basename = os.path.basename(filename)
     if not os.path.exists('ffxml/'):
         os.mkdir('ffxml')
-    ffxml_name = os.path.join('ffxml/', basename[:-1], '.xml')
+    ffxml_name = 'ffxml/' + basename + '.xml'
     print('Preparing %s for conversion...' % basename)
     with open(filename) as f:
         lines = map(lambda line:
@@ -135,6 +135,10 @@ quit""" % (leaprc_name, villin_top[1], villin_crd[1])
     elif len(e) == 5:
         villin_omm_energies = [e[0], e[1], ('PeriodicTorsionForce', 0.0), e[2], e[3], e[4]]
 
+    # dev if you don't want to assert
+    return (ala3_amber_energies, ala3_omm_energies, villin_amber_energies,
+           villin_omm_energies)
+
     print('Asserting ala_ala_ala energies...')
     counter = 0
     for i, j in zip(ala3_amber_energies, ala3_omm_energies):
@@ -173,8 +177,8 @@ quit""" % (leaprc_name, villin_top[1], villin_crd[1])
                 counter += 1
     print('Villin headpiece energy validation successful!')
     # dev
-    return (ala3_amber_energies, ala3_omm_energies, villin_amber_energies,
-           villin_omm_energies)
+    #return (ala3_amber_energies, ala3_omm_energies, villin_amber_energies,
+    #       villin_omm_energies)
     print('Done!')
 
 def validate_nucleic(ffxml_name, leaprc_name):
@@ -328,6 +332,10 @@ quit""" % (leaprc_name, rna_top[1], rna_crd[1])
     elif len(e) == 5:
         rna_omm_energies = [e[0], e[1], ('PeriodicTorsionForce', 0.0), e[2], e[3], e[4]]
 
+    # dev
+    return (dna_amber_energies, dna_omm_energies, rna_amber_energies,
+           rna_omm_energies)
+
     print('Asserting DNA energies...')
     counter = 0
     for i, j in zip(dna_amber_energies, dna_omm_energies):
@@ -354,8 +362,8 @@ quit""" % (leaprc_name, rna_top[1], rna_crd[1])
             counter += 1
     print('RNA energy validation successful!')
     # dev
-    return (dna_amber_energies, dna_omm_energies, rna_amber_energies,
-           rna_omm_energies)
+    #return (dna_amber_energies, dna_omm_energies, rna_amber_energies,
+    #       rna_omm_energies)
 
 def validate_gaff(ffxml_name, leaprc_name):
     if not find_executable('tleap'):
@@ -413,6 +421,7 @@ def diagnostics_modify_leaprc():
         parmed.amber.AMBERHOME = AMBERHOME
     import copy
     from parmed.utils.six import iteritems
+    import shutil
     # open log
     log = open('conv.log', 'w')
     log.write('Start log\n')
@@ -451,10 +460,12 @@ def diagnostics_modify_leaprc():
     for typ in parm.atom_types:
         if typ in skip_types:
             del parm.atom_types[typ]
+    # prep sums of energies
+    a_sum=b_sum=c_sum=d_sum=e_sum=f_sum=g_sum=h_sum = 0
     # now turn off all impropers BUT one
     for imp in improper:
         log = open('conv.log', 'a')
-        improper_new = copy.copy(improper)
+        improper_new = copy.deepcopy(improper)
         leaprc_mod_file = tempfile.mkstemp()
         dat_mod_file = tempfile.mkstemp()
         for imp2 in improper_new:
@@ -675,22 +686,41 @@ CHIS = CHIE""" % dat_mod_file[1]
         os.write(leaprc_mod_file[0], leaprc_mod_string)
 
         #run stuff
+        dat_closed = False
         try:
             ffxml_name = convert(leaprc_mod_file[1], ignore=ignore)
             #validate_protein(ffxml_name, leaprc_mod_file[1])
             #validate_nucleic(ffxml_name, leaprc_mod_file[1])
             (a, b, c, d) = validate_protein(ffxml_name, leaprc_mod_file[1])
             (e, f, g, h)= validate_nucleic(ffxml_name, leaprc_mod_file[1])
+            # add to sums
+            a_sum += a[3][1]
+            b_sum += b[3][1]
+            c_sum += c[3][1]
+            d_sum += d[3][1]
+            e_sum += e[3][1]
+            f_sum += f[3][1]
+            g_sum += g[3][1]
+            h_sum += h[3][1]
+            # dev - save dat file too
+            dat_save_name = ffxml_name.split('.')[0] + '.dat'
+            os.close(dat_mod_file[0])
+            dat_closed = True
+            shutil.copyfile(dat_mod_file[1], dat_save_name)
         finally:
             os.close(leaprc_mod_file[0])
-            os.close(dat_mod_file[0])
+            if not dat_closed:
+                os.close(dat_mod_file[0])
             os.unlink(leaprc_mod_file[1])
             os.unlink(dat_mod_file[1])
         #(a, b, c, d) = validate_protein(ffxml_name, leaprc_mod_file[1])
         #(e, f, g, h)= validate_nucleic(ffxml_name, leaprc_mod_file[1])
         #for i in (a,b,c,d,e,f,g,h):
         #    print(i)
-
+        log.write(str(imp))
+        log.write('\n')
+        log.write(ffxml_name)
+        log.write('\n')
         log.write(str(a[3]))
         log.write('\n')
         log.write(str(b[3]))
@@ -710,6 +740,27 @@ CHIS = CHIE""" % dat_mod_file[1]
         #log.write(str(improper_new))
         #log.write('\n\n')
         log.close()
+
+    #write sums
+    log = open('conv.log', 'a')
+    log.write('Totals\n')
+    log.write(str(a_sum))
+    log.write('\n')
+    log.write(str(b_sum))
+    log.write('\n\n')
+    log.write(str(c_sum))
+    log.write('\n')
+    log.write(str(d_sum))
+    log.write('\n\n')
+    log.write(str(e_sum))
+    log.write('\n')
+    log.write(str(f_sum))
+    log.write('\n\n')
+    log.write(str(g_sum))
+    log.write('\n')
+    log.write(str(h_sum))
+    log.write('\n\n')
+    log.close()
 
 if __name__ == '__main__':
     diagnostics_modify_leaprc()
